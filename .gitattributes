@@ -1,0 +1,5 @@
+# Keep sample files byte-for-byte identical on every OS, so the SHA-256
+# fingerprints in the README and the example output match after cloning.
+*.csv -text
+*.xlsx binary
+*.yaml -text

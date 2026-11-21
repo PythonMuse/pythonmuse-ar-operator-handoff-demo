@@ -1,0 +1,50 @@
+# AR aging review: approved rules and thresholds.
+#
+# ILLUSTRATIVE VALUES ONLY, NOT A RECOMMENDATION. Your organization's
+# controller (or whoever owns the AR policy) decides the real values.
+#
+# Who can change this file: the maintainer, after the rules owner approves the
+# change. Operators never edit it. Every change gets a new rules_version, and
+# the version plus a SHA-256 fingerprint of this file are printed on every
+# workpaper, so a reviewer can tell which rules produced which result.
+
+rules_version: "2026.10-1"
+approved_by: "Controller (illustrative)"
+
+# The input file must be saved in this folder (relative to the project root),
+# and named exactly like this, with the as-of date filled in.
+approved_input_folder: "sample_data"
+file_name_pattern: "AR_Open_Items_{as_of}.csv"
+
+required_columns:
+  - invoice_id
+  - customer_id
+  - customer_name
+  - invoice_date
+  - due_date
+  - open_amount
+
+# Aging is measured in days past the due date on the as-of date.
+# max_days is the top of each bucket; the last bucket has no top (null).
+# A line due on the as-of date (0 days) or later is Current.
+aging_buckets:
+  - label: "Current"
+    max_days: 0
+  - label: "1-30"
+    max_days: 30
+  - label: "31-60"
+    max_days: 60
+  - label: "61-90"
+    max_days: 90
+  - label: "Over 90"
+    max_days: null
+
+exception_thresholds:
+  # A line MORE than this many days past due is listed as an exception.
+  days_past_due: 90
+  # A customer whose total balance is MORE than this is listed for review.
+  customer_balance_review: 25000.00
+
+# The aging total must equal the AR control balance (from the general ledger)
+# within this amount, or the run is marked "stop and escalate".
+reconciliation_tolerance: 0.00

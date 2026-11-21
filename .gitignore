@@ -1,0 +1,7 @@
+# Run output stays local: it is evidence for your own review, not repo content.
+output/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
