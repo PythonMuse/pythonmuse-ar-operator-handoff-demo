@@ -109,6 +109,14 @@ class ARReviewApp:
             self.panel.insert("end", text, tag or ())
         self.panel.configure(state="disabled")
 
+    def _show_error(self, exc):
+        if isinstance(exc, runner.RunError):
+            message = str(exc)
+        else:
+            message = (f"Something went wrong: {exc}. Nothing was run. "
+                       f"Escalate to the maintainer.")
+        self._write([(" STOP ", "BLOCK"), (f"  {message}\n", None)])
+
     def _invalidate(self, *_):
         self.checked_ok = False
         self.run_btn.configure(state="disabled")
@@ -143,7 +151,11 @@ class ARReviewApp:
             self._write([("STOP  ", "BLOCK"), (f"{exc}\n", None)])
             self._invalidate()
             return None
-        report = runner.check(self.settings, path, as_of, control)
+        try:
+            report = runner.check(self.settings, path, as_of, control)
+        except Exception as exc:  # show it; never fail silently in the window
+            self._show_error(exc)
+            return None
         parts = []
         for c in report.checks:
             label = STATUS_STYLE[c.status][0]
@@ -163,9 +175,14 @@ class ARReviewApp:
     def on_run(self):
         if not self.checked_ok:
             return None
-        as_of, path, control = self._inputs()
-        outcome = runner.run(self.settings, path, as_of, control,
-                             self.prepared_by.get())
+        try:
+            as_of, path, control = self._inputs()
+            outcome = runner.run(self.settings, path, as_of, control,
+                                 self.prepared_by.get())
+        except Exception as exc:  # show it; never fail silently in the window
+            self._invalidate()
+            self._show_error(exc)
+            return None
         self.last_outcome = outcome
         self._invalidate()
         if outcome.workpaper is None:

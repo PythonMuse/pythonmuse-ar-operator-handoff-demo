@@ -89,7 +89,8 @@ def test_missing_run_log_still_never_overwrites(settings):
     # If someone deletes the run log, numbering restarts at run01, but the
     # existing run01 workpaper is protected rather than replaced.
     out = runner.run(settings, GOOD, AS_OF, CONTROL, "Op", now=FIXED_NOW)
+    before = sha256_of_file(out.workpaper)
     (settings.output_dir / "run_log.csv").unlink()
-    with pytest.raises(FileExistsError):
+    with pytest.raises(runner.RunError, match="Escalate to the maintainer"):
         runner.run(settings, GOOD, AS_OF, CONTROL, "Op", now=FIXED_NOW)
-    assert out.workpaper.is_file()
+    assert sha256_of_file(out.workpaper) == before

@@ -81,7 +81,25 @@ def main(argv=None) -> int:
     except ValueError as exc:
         print(f"\n{exc}\nNothing was run.")
         return runner.EXIT_BLOCKED
+    except (EOFError, KeyboardInterrupt):
+        # No one to answer (a scheduled run missing an option), or Ctrl+C.
+        print("\nCancelled. Nothing was run. (For an unattended run, give every "
+              "answer as an option and add --yes.)")
+        return runner.EXIT_CANCELLED
 
+    try:
+        return _check_and_run(settings, args, input_path, as_of, control_total,
+                              prepared_by)
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelled. Nothing was run.")
+        return runner.EXIT_CANCELLED
+    except runner.RunError as exc:
+        print(f"\nSTOP: {exc}")
+        return runner.EXIT_ERROR
+
+
+def _check_and_run(settings, args, input_path, as_of, control_total,
+                   prepared_by) -> int:
     report = runner.check(settings, input_path, as_of, control_total,
                           args.corrected_export)
     print_checks(report)

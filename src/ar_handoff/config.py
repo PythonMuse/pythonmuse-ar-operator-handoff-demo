@@ -51,6 +51,11 @@ def sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _whole_number(value) -> bool:
+    # YAML reads "true" as a bool, and Python counts a bool as an int; reject it.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _decimal(value, field: str) -> Decimal:
     try:
         d = Decimal(str(value))
@@ -92,6 +97,8 @@ def load_rules(path: str | Path) -> Rules:
     buckets = []
     previous = None
     for i, b in enumerate(buckets_raw):
+        if not isinstance(b, dict):
+            raise RulesError(f"Aging bucket {i + 1} must have a label and max_days.")
         label = str(b.get("label", "")).strip()
         max_days = b.get("max_days")
         if not label:
@@ -101,7 +108,7 @@ def load_rules(path: str | Path) -> Rules:
             if max_days is not None:
                 raise RulesError("The last aging bucket must have max_days: null.")
         else:
-            if not isinstance(max_days, int):
+            if not _whole_number(max_days):
                 raise RulesError(f"Bucket '{label}' needs a whole-number max_days.")
             if previous is not None and max_days <= previous:
                 raise RulesError("Aging buckets must be in increasing order.")
@@ -109,8 +116,11 @@ def load_rules(path: str | Path) -> Rules:
         buckets.append(Bucket(label, max_days))
 
     thresholds = need("exception_thresholds")
+    if not isinstance(thresholds, dict):
+        raise RulesError("'exception_thresholds' must list days_past_due and "
+                         "customer_balance_review.")
     days = thresholds.get("days_past_due")
-    if not isinstance(days, int) or days < 0:
+    if not _whole_number(days) or days < 0:
         raise RulesError("'exception_thresholds.days_past_due' must be a whole number.")
 
     return Rules(

@@ -4,6 +4,10 @@ Both the terminal launcher and the desktop app go through these two functions,
 so they cannot drift apart: same validation, same engine, same workpaper.
 run() validates again before calculating, because the file may have changed
 between the operator's "Check" and "Run".
+
+If the output can't be written (the run log is open in Excel, say), run()
+raises RunError with a message an operator can act on, and leaves nothing
+half-done: a workpaper is only kept if its run-log line was written too.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from pathlib import Path
 from . import __version__
 from .config import Rules, load_rules, sha256_of_file
 from .engine import AgingResult, Reconciliation, age, reconcile
-from .runlog import append_run, read_runs, runs_for
+from .runlog import append_run, log_path, read_runs, runs_for
 from .validate import ValidationReport, validate_input
 from .workpaper import GREEN_CHECK_NOTE, RunInfo, write_workpaper
 
@@ -32,8 +36,23 @@ STATUS_BLOCKED = "BLOCKED - NOTHING WAS RUN"
 EXIT_OK, EXIT_ERROR, EXIT_BLOCKED, EXIT_DIFFERENCE, EXIT_NO_CONTROL, EXIT_CANCELLED = (
     0, 1, 2, 3, 4, 5)
 
-__all__ = ["GREEN_CHECK_NOTE", "Settings", "RunOutcome", "check", "run",
+__all__ = ["GREEN_CHECK_NOTE", "Settings", "RunOutcome", "RunError", "check", "run",
            "parse_as_of", "parse_amount", "load_settings"]
+
+
+class RunError(OSError):
+    """The output could not be read or written. The message says what to do."""
+
+
+def _why(exc: OSError) -> str:
+    return exc.strerror or str(exc)
+
+
+def _log_unavailable(settings: Settings, exc: OSError) -> RunError:
+    return RunError(
+        f"Could not use the run log ({log_path(settings.output_dir)}): {_why(exc)}. "
+        f"If it is open in Excel or another program, close it and try again. "
+        f"Nothing was written.")
 
 
 @dataclass
@@ -83,9 +102,12 @@ def parse_amount(text: str | None) -> Decimal | None:
 
 def check(settings: Settings, input_path, as_of: date, control_total: Decimal | None,
           corrected_reason: str | None = None) -> ValidationReport:
+    try:
+        prior_runs = read_runs(settings.output_dir)
+    except OSError as exc:
+        raise _log_unavailable(settings, exc) from exc
     return validate_input(input_path, as_of, settings.rules, settings.approved_root,
-                          control_total, read_runs(settings.output_dir),
-                          corrected_reason)
+                          control_total, prior_runs, corrected_reason)
 
 
 def run(settings: Settings, input_path, as_of: date, control_total: Decimal | None,
@@ -106,7 +128,10 @@ def run(settings: Settings, input_path, as_of: date, control_total: Decimal | No
         status, code = STATUS_NO_CONTROL, EXIT_NO_CONTROL
 
     as_of_iso = as_of.isoformat()
-    n = len(runs_for(settings.output_dir, as_of_iso)) + 1
+    try:
+        n = len(runs_for(settings.output_dir, as_of_iso)) + 1
+    except OSError as exc:
+        raise _log_unavailable(settings, exc) from exc
     run_id = f"{as_of_iso}-run{n:02d}"
     target = settings.output_dir / as_of_iso / f"AR_Aging_Workpaper_{run_id}.xlsx"
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -123,18 +148,48 @@ def run(settings: Settings, input_path, as_of: date, control_total: Decimal | No
                    status=status, rules_version=rules.version,
                    rules_approved_by=rules.approved_by, rules_sha256=rules.sha256,
                    code_version=__version__, note=note)
-    write_workpaper(target, result, recon, report, info)
 
-    append_run(settings.output_dir, {
-        "run_id": run_id, "run_timestamp_utc": stamp, "as_of": as_of_iso,
-        "prepared_by": info.prepared_by, "input_file": report.input_path.name,
-        "input_sha256": report.input_sha256, "rows": result.row_count,
-        "aging_total": f"{result.total:.2f}",
-        "control_total": "" if control_total is None else f"{control_total:.2f}",
-        "difference": "" if recon.difference is None else f"{recon.difference:.2f}",
-        "status": status, "rules_version": rules.version,
-        "rules_sha256": rules.sha256, "code_version": __version__,
-        "workpaper_file": target.relative_to(settings.output_dir).as_posix(),
-        "workpaper_sha256": sha256_of_file(target), "note": note,
-    })
+    # Before writing any evidence, make sure the run log can take a new line.
+    # (On Windows, a log that is open in Excel can't be written to.)
+    log = log_path(settings.output_dir)
+    if log.is_file():
+        try:
+            with open(log, "a", encoding="utf-8"):
+                pass
+        except OSError as exc:
+            raise _log_unavailable(settings, exc) from exc
+
+    try:
+        write_workpaper(target, result, recon, report, info)
+    except FileExistsError as exc:
+        # The run log doesn't list this run, but its workpaper exists: the log
+        # was edited, replaced, or deleted. Never overwrite evidence.
+        raise RunError(
+            f"A workpaper for {run_id} already exists ({target}), but the run log "
+            f"doesn't list it. Nothing was written. Escalate to the maintainer: "
+            f"the run log may have been edited or deleted.") from exc
+    except OSError as exc:
+        target.unlink(missing_ok=True)  # it didn't exist before; drop any partial file
+        raise RunError(
+            f"Could not save the workpaper ({target}): {_why(exc)}. "
+            f"Nothing was written.") from exc
+
+    try:
+        append_run(settings.output_dir, {
+            "run_id": run_id, "run_timestamp_utc": stamp, "as_of": as_of_iso,
+            "prepared_by": info.prepared_by, "input_file": report.input_path.name,
+            "input_sha256": report.input_sha256, "rows": result.row_count,
+            "aging_total": f"{result.total:.2f}",
+            "control_total": "" if control_total is None else f"{control_total:.2f}",
+            "difference": "" if recon.difference is None else f"{recon.difference:.2f}",
+            "status": status, "rules_version": rules.version,
+            "rules_sha256": rules.sha256, "code_version": __version__,
+            "workpaper_file": target.relative_to(settings.output_dir).as_posix(),
+            "workpaper_sha256": sha256_of_file(target), "note": note,
+        })
+    except OSError as exc:
+        # A workpaper the log doesn't list would block every later run for this
+        # period, so take it back out.
+        target.unlink(missing_ok=True)
+        raise _log_unavailable(settings, exc) from exc
     return RunOutcome(report, status, code, result, recon, run_id, target)

@@ -9,6 +9,11 @@ Totals and the reconciliation difference are written as live Excel formulas
 (for example =SUM(B8:B13)), not pasted values, so a reviewer can click a total
 and see how it was built. Excel calculates them when the file is opened.
 
+Only those formulas are live. Text that comes from the input file or from the
+operator (a customer name, an invoice ID, the "Prepared by" name) is always
+stored as plain text, even if it starts with "=", so an export can't plant a
+formula or a link in the workpaper.
+
 A workpaper is never overwritten. If the target file already exists, writing
 stops with an error.
 """
@@ -86,6 +91,26 @@ def _band(ws, first_row, last_row, ncols):
                 ws.cell(row=r, column=c).fill = _fill(ROW_TINT)
 
 
+def _formula(ws, row, col, text, formulas):
+    """Write one of the workpaper's own formulas and remember where it is."""
+    cell = ws.cell(row=row, column=col, value=text)
+    formulas.add((ws.title, cell.coordinate))
+    return cell
+
+
+def _text_only(wb, formulas):
+    """Store any other value that starts with '=' as plain text, not a formula.
+
+    openpyxl treats every string starting with '=' as a formula. Input data and
+    operator-typed text must never become live formulas in a workpaper.
+    """
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f" and (ws.title, cell.coordinate) not in formulas:
+                    cell.data_type = "s"
+
+
 def _total_row(ws, row, ncols):
     for c in range(1, ncols + 1):
         cell = ws.cell(row=row, column=c)
@@ -102,6 +127,7 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
 
     wb = Workbook()
     as_of = result.as_of.isoformat()
+    formulas: set[tuple[str, str]] = set()  # (sheet, cell) of our own formulas
 
     # --- Summary -----------------------------------------------------------
     ws = wb.active
@@ -128,8 +154,8 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     # Totals are live Excel formulas, not pasted values, so a reviewer can click
     # a total and see exactly which cells it adds up.
     ws.cell(row=r, column=1, value="Total")
-    ws.cell(row=r, column=2, value=f"=SUM(B8:B{r - 1})").number_format = MONEY
-    ws.cell(row=r, column=3, value=f"=SUM(C8:C{r - 1})")
+    _formula(ws, r, 2, f"=SUM(B8:B{r - 1})", formulas).number_format = MONEY
+    _formula(ws, r, 3, f"=SUM(C8:C{r - 1})", formulas)
     _total_row(ws, r, 3)
     summary_total_row = r
     r += 2
@@ -179,7 +205,10 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     ]
     for i, (k, v) in enumerate(rows, start=4):
         ws.cell(row=i, column=1, value=k)
-        cell = ws.cell(row=i, column=2, value=v)
+        if i in (4, 6) and isinstance(v, str) and v.startswith("="):
+            cell = _formula(ws, i, 2, v, formulas)
+        else:
+            cell = ws.cell(row=i, column=2, value=v)
         if i in (4, 5, 6, 7) and v not in ("Not entered", "n/a"):
             cell.number_format = MONEY
     _band(ws, 4, 3 + len(rows), 2)
@@ -237,12 +266,14 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     for cid in sorted(result.customer_totals):
         # Customer total = a formula across that customer's bucket amounts.
         values = ([cid, result.customer_names[cid]]
-                  + [result.customer_buckets[cid][lb] for lb in result.bucket_labels]
-                  + [f"=SUM({first_bucket_col}{r}:{last_bucket_col}{r})"])
+                  + [result.customer_buckets[cid][lb] for lb in result.bucket_labels])
         for c, v in enumerate(values, start=1):
             cell = ws.cell(row=r, column=c, value=v)
             if c > 2:
                 cell.number_format = MONEY
+        _formula(ws, r, len(values) + 1,
+                 f"=SUM({first_bucket_col}{r}:{last_bucket_col}{r})",
+                 formulas).number_format = MONEY
         r += 1
     _band(ws, 4, r - 1, len(cols))
     # Bottom row = a formula down each column.
@@ -250,9 +281,10 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
         f"=SUM({get_column_letter(c)}4:{get_column_letter(c)}{r - 1})"
         for c in range(3, len(cols) + 1)]
     for c, v in enumerate(totals, start=1):
-        cell = ws.cell(row=r, column=c, value=v)
         if c > 2:
-            cell.number_format = MONEY
+            _formula(ws, r, c, v, formulas).number_format = MONEY
+        else:
+            ws.cell(row=r, column=c, value=v)
     _total_row(ws, r, len(cols))
     _widths(ws, [12, 26] + [13] * (len(cols) - 2))
 
@@ -285,4 +317,5 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     _band(ws, 4, 3 + len(rows), 2)
     _widths(ws, [26, 70])
 
+    _text_only(wb, formulas)
     wb.save(path)

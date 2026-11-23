@@ -73,6 +73,11 @@ def _lines(items, limit=5) -> str:
     return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
 
 
+def _unreadable(exc: OSError) -> str:
+    return (f"Could not open the file ({exc.strerror or exc}). If it is open in "
+            f"another program, close it and check again.")
+
+
 def _parse_date(text: str) -> date | None:
     try:
         return date.fromisoformat(text)
@@ -104,7 +109,11 @@ def validate_input(input_path, as_of: date, rules: Rules, approved_root: Path,
         report.add("File found", BLOCK, f"No file at {path}.")
         return report
     report.add("File found", PASS, path.name)
-    report.input_sha256 = sha256_of_file(path)
+    try:
+        report.input_sha256 = sha256_of_file(path)
+    except OSError as exc:
+        report.add("File readable", BLOCK, _unreadable(exc))
+        return report
 
     # 3. File name follows the convention for this as-of date.
     expected = rules.expected_file_name(as_of_iso)
@@ -123,6 +132,9 @@ def validate_input(input_path, as_of: date, rules: Rules, approved_root: Path,
             raw_rows = list(reader)
     except (UnicodeDecodeError, csv.Error) as exc:
         report.add("File readable", BLOCK, f"Could not read the file as CSV: {exc}")
+        return report
+    except OSError as exc:
+        report.add("File readable", BLOCK, _unreadable(exc))
         return report
 
     missing = [c for c in rules.required_columns if c not in header]

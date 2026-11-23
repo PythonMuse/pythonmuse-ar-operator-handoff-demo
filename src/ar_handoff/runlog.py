@@ -20,6 +20,19 @@ FIELDS = [
 ]
 
 
+# Free-text fields that come from a person or a file name. If one starts with a
+# character a spreadsheet reads as a formula, it gets a leading apostrophe, so
+# opening the log in Excel shows the text instead of running it. Number fields
+# (a difference of -640.00, say) are left exactly as they are.
+TEXT_FIELDS = ("prepared_by", "input_file", "note")
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_text(value) -> str:
+    text = "" if value is None else str(value)
+    return "'" + text if text.startswith(FORMULA_START) else text
+
+
 def log_path(output_dir: Path) -> Path:
     return Path(output_dir) / LOG_NAME
 
@@ -44,4 +57,7 @@ def append_run(output_dir: Path, record: dict) -> None:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         if new:
             writer.writeheader()
-        writer.writerow({k: record.get(k, "") for k in FIELDS})
+        row = {k: record.get(k, "") for k in FIELDS}
+        for k in TEXT_FIELDS:
+            row[k] = _safe_text(row[k])
+        writer.writerow(row)

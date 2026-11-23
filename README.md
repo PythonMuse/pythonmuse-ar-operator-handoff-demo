@@ -76,9 +76,9 @@ python run_terminal.py --as-of 2026-10-31 --input sample_data/bad_schema/AR_Open
 STOP: fix the items marked [STOP], or escalate. Nothing was run.
 ```
 
-Nothing is written when a run is blocked. Each run's workpaper goes to `output/<as-of date>/`, and every completed run is added to `output/run_log.csv`. The `output/` folder is not committed.
+Nothing is written when a run is blocked. Each run's workpaper goes to `output/<as-of date>/`, and every completed run is added to `output/run_log.csv`. The `output/` folder is not committed. If you open `run_log.csv` in Excel, close it before the next run: on Windows, Excel locks the file, and the run stops with a message rather than leaving a workpaper the log doesn't list.
 
-Exit codes, for anyone scheduling the terminal launcher: 0 ready for review, 2 blocked, 3 reconciliation difference, 4 no control total, 5 cancelled by the operator, 1 could not start.
+Exit codes, for anyone scheduling the terminal launcher: 0 ready for review, 2 blocked, 3 reconciliation difference, 4 no control total, 5 cancelled (by the operator, or because an unattended run was missing an answer), 1 could not start or could not write the output. For an unattended run, give every answer as an option and add `--yes`.
 
 ---
 
@@ -123,7 +123,8 @@ This is a teaching demo, not a production system. It shows the shape of a contro
 - **A green check is not a sign-off.** The checks confirm the file is the right shape and the total ties. They can't tell you the export was complete, that a credit is real, or that a 120-day invoice is collectible.
 - **What production would add:** access control on the input, output, and rules folders; an approved place to host and install it; change management for the code and the rules (who approves, how versions are released); a named owner; backup of the run log and workpapers; and, if you package it as an executable, your IT team's process for signing and distributing software.
 - **No network calls and no AI model calls** happen at runtime. Accounting data stays on the machine that runs it.
-- **The approved input folder** in the rules file is checked by the code, but real protection comes from folder permissions set by IT.
+- **The approved input folder** in the rules file is checked by the code, but real protection comes from folder permissions set by IT. The check accepts the folder *and its subfolders*; that is how the deliberately broken samples in `sample_data/bad_schema/` and the others reach the later checks. A path typed by hand is read from the folder the app was started in, so Browse is the safer way to pick a file.
+- **Input text stays text.** A customer name or invoice ID that starts with `=` is written to the workpaper as plain text, never as a live formula, and operator-typed text in the run log is escaped the same way. Only the workpaper's own totals are formulas.
 
 ---
 
@@ -132,7 +133,7 @@ This is a teaching demo, not a production system. It shows the shape of a contro
 - **Owner:** the role that owns the code, the tests, and the rules file. In this demo, that's whoever forks it.
 - **Setup:** the commands above. Dependencies are pinned in `requirements.txt` (runtime) and `requirements-dev.txt` (adds pytest).
 - **Changing rules:** buckets, thresholds, tolerance, the file name pattern, and the approved input folder live in [config/rules.example.yaml](config/rules.example.yaml). A change needs the rules owner's approval and a new `rules_version`. The version and the file's SHA-256 fingerprint print on every workpaper, so old results stay explainable. Run the tests after any change; the known-answer tests will tell you if a "small" threshold change moved a total.
-- **Updates and rollback:** release a new version by tagging a commit and bumping `__version__` in `src/ar_handoff/__init__.py`. Roll back by reinstalling the previous tag. Workpapers record the code version, so you can tell which runs used which release.
+- **Updates and rollback:** release a new version by tagging a commit and bumping the version in both `src/ar_handoff/__init__.py` (`__version__`) and `pyproject.toml`; a test fails if they disagree. Roll back by reinstalling the previous tag. Workpapers record the code version, so you can tell which runs used which release.
 - **Incident:** if a run used a wrong file or wrong rules, don't edit the workpaper. Mark it superseded in your review record, fix the cause, and re-run. To re-run a period that already has a run with a *corrected* export, the terminal launcher's `--corrected-export "reason"` option records the reason on the workpaper and in the run log. The desktop window deliberately doesn't offer it; operators escalate, maintainers act.
 
 ---
@@ -150,7 +151,7 @@ src/ar_handoff/
     runner.py                check, then run; the only module the front doors call
     launcher.py              guided terminal front door (thin)
     desktop.py               Tkinter front door (thin)
-tests/                       known answers, invalid inputs, boundaries, repeat runs, launchers
+tests/                       known answers, invalid inputs, boundaries, repeat runs, launchers, hardening
 examples/expected_output/    a committed sample workpaper and run log
 ```
 
