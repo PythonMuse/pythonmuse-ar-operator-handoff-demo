@@ -41,6 +41,8 @@ from decimal import Decimal as D
 
 from openpyxl import load_workbook
 
+from formula_eval import value_of
+
 from ar_handoff import runner
 from ar_handoff.config import sha256_of_file
 from ar_handoff.engine import age
@@ -117,10 +119,11 @@ def test_full_run_reconciles_and_writes_workpaper(settings):
     wb = load_workbook(out.workpaper)
     assert wb.sheetnames == ["Summary", "Exceptions", "Reconciliation",
                              "Validation", "Detail", "By Customer", "Run Info"]
-    summary = {row[0]: row[1] for row in wb["Summary"].iter_rows(values_only=True)
-               if row[0]}
-    assert D(str(summary["Total"])) == EXPECTED_TOTAL
-    assert D(str(summary["Over 90"])) == D("4175.00")
+    summary = {row[0].value: row[1].coordinate for row in wb["Summary"].iter_rows()
+               if row[0].value}
+    # The Total cell is a live formula; evaluate it the way Excel will.
+    assert value_of(wb, "Summary", summary["Total"]) == EXPECTED_TOTAL
+    assert value_of(wb, "Summary", summary["Over 90"]) == D("4175.00")
     info = {row[0]: row[1] for row in wb["Run Info"].iter_rows(min_row=4, values_only=True)}
     assert info["Input file SHA-256"] == sha256_of_file(GOOD)
     assert info["Rules version"] == "2026.10-1"

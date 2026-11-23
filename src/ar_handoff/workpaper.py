@@ -5,6 +5,10 @@ Run Info. The Run Info sheet records the as-of date, the input file's SHA-256
 fingerprint, the rules version and fingerprint, and the code version, so a
 reviewer can tell exactly what produced the numbers.
 
+Totals and the reconciliation difference are written as live Excel formulas
+(for example =SUM(B8:B13)), not pasted values, so a reviewer can click a total
+and see how it was built. Excel calculates them when the file is opened.
+
 A workpaper is never overwritten. If the target file already exists, writing
 stops with an error.
 """
@@ -121,10 +125,13 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
         ws.cell(row=r, column=3, value=n)
         r += 1
     _band(ws, 8, r - 1, 3)
+    # Totals are live Excel formulas, not pasted values, so a reviewer can click
+    # a total and see exactly which cells it adds up.
     ws.cell(row=r, column=1, value="Total")
-    ws.cell(row=r, column=2, value=result.total).number_format = MONEY
-    ws.cell(row=r, column=3, value=result.row_count)
+    ws.cell(row=r, column=2, value=f"=SUM(B8:B{r - 1})").number_format = MONEY
+    ws.cell(row=r, column=3, value=f"=SUM(C8:C{r - 1})")
     _total_row(ws, r, 3)
+    summary_total_row = r
     r += 2
     for label, value in [("Customers", result.customer_count),
                          ("Exceptions to review", len(result.exceptions)),
@@ -156,12 +163,15 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     ws.sheet_properties.tabColor = OCEAN_TEAL
     _title(ws, "Reconciliation to the AR control balance")
     _header(ws, 3, ["Item", "Value"])
+    # The aging total points at the Summary total, and the difference is a
+    # formula, so the reviewer can follow both. The control balance is typed
+    # in by the operator from the general ledger: it comes from outside.
     rows = [
-        ("AR aging total (this workpaper)", recon.aging_total),
+        ("AR aging total (this workpaper)", f"=Summary!B{summary_total_row}"),
         ("AR control balance (general ledger, entered by operator)",
          recon.control_total if recon.control_total is not None else "Not entered"),
         ("Difference (aging total minus control balance)",
-         recon.difference if recon.difference is not None else "n/a"),
+         "=B4-B5" if recon.control_total is not None else "n/a"),
         ("Tolerance (from the rules file)", recon.tolerance),
         ("Result", recon.status),
         ("Lines in input file", result.row_count),
@@ -170,7 +180,7 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     for i, (k, v) in enumerate(rows, start=4):
         ws.cell(row=i, column=1, value=k)
         cell = ws.cell(row=i, column=2, value=v)
-        if i in (4, 5, 6, 7) and not isinstance(v, str):
+        if i in (4, 5, 6, 7) and v not in ("Not entered", "n/a"):
             cell.number_format = MONEY
     _band(ws, 4, 3 + len(rows), 2)
     _widths(ws, [58, 22])
@@ -221,18 +231,24 @@ def write_workpaper(path: Path, result: AgingResult, recon: Reconciliation,
     cols = ["Customer ID", "Customer"] + result.bucket_labels + ["Total"]
     _header(ws, 3, cols)
     r = 4
+    n_buckets = len(result.bucket_labels)
+    first_bucket_col = get_column_letter(3)
+    last_bucket_col = get_column_letter(2 + n_buckets)
     for cid in sorted(result.customer_totals):
+        # Customer total = a formula across that customer's bucket amounts.
         values = ([cid, result.customer_names[cid]]
                   + [result.customer_buckets[cid][lb] for lb in result.bucket_labels]
-                  + [result.customer_totals[cid]])
+                  + [f"=SUM({first_bucket_col}{r}:{last_bucket_col}{r})"])
         for c, v in enumerate(values, start=1):
             cell = ws.cell(row=r, column=c, value=v)
             if c > 2:
                 cell.number_format = MONEY
         r += 1
     _band(ws, 4, r - 1, len(cols))
-    totals = (["Total", ""] + [result.bucket_totals[lb] for lb in result.bucket_labels]
-              + [result.total])
+    # Bottom row = a formula down each column.
+    totals = ["Total", ""] + [
+        f"=SUM({get_column_letter(c)}4:{get_column_letter(c)}{r - 1})"
+        for c in range(3, len(cols) + 1)]
     for c, v in enumerate(totals, start=1):
         cell = ws.cell(row=r, column=c, value=v)
         if c > 2:

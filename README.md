@@ -1,6 +1,6 @@
 # AR Operator Handoff Demo
 
-*A small, tested accounts receivable aging review with two operator front doors: a guided terminal launcher and a desktop window. Same engine behind both.*
+*A small, tested accounts receivable aging review with two operator front doors: a guided terminal launcher and a desktop window. Same calculation script behind both.*
 
 > **Part of a PythonMuse Lab.** [I Built the Workflow. Now How Does My Team Use It?](https://pythonmuse.com/46-team-ready-workflows/) is the *Understand* layer. [The technical appendix](https://pythonmuse.com/46-team-ready-workflows/technical-appendix/) is *Implement*. This repository is *Experiment*.
 
@@ -144,7 +144,7 @@ config/rules.example.yaml    approved rules and thresholds (illustrative values)
 sample_data/                 synthetic files, with deliberately seeded problems
 src/ar_handoff/
     validate.py              the input contract: what blocks and what warns
-    engine.py                aging, exceptions, reconciliation; no interface code
+    engine.py                the calculation script: aging, exceptions, reconciliation; no interface code
     workpaper.py             the Excel workpaper and run metadata
     runlog.py                the append-only run log
     runner.py                check, then run; the only module the front doors call
