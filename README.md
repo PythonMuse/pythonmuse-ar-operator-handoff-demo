@@ -19,7 +19,7 @@ Run against the October 2026 sample file with an AR control balance of 60,490.75
 - **15 open items** for **7 customers**, totaling **60,490.75**, which **reconciles** to the control balance with a difference of 0.00.
 - **Aging:** Current 27,750.00 · 1-30 days 14,000.00 · 31-60 days 7,350.50 · 61-90 days 6,575.25 · Over 90 days 4,175.00 · No due date 640.00.
 - **6 exceptions to review:** two invoices more than 90 days past due, one invoice with no due date, one credit balance, one zero-balance line, and one customer whose total (28,300.00) is above the 25,000.00 review threshold.
-- **A workpaper** with seven sheets: Summary, Exceptions (with blank Disposition and Reviewer notes columns), Reconciliation, Validation, Detail, By Customer, and Run Info (as-of date, the input file's SHA-256 fingerprint, rules version and fingerprint, code version, and blank sign-off fields).
+- **A workpaper** with seven sheets: Summary, Exceptions (with blank Disposition and Reviewer notes columns), Reconciliation, Validation, Detail, By Customer, and Run Info (as-of date, the input file's SHA-256 fingerprint, rules version and fingerprint, code version, and blank sign-off fields). Totals and the reconciliation difference are live Excel formulas, not pasted values: click a total and Excel shows which cells it adds up. Excel calculates them when you open the file.
 
 A committed copy of that workpaper is in [examples/expected_output/](examples/expected_output/), so you can see the result before you run anything.
 
